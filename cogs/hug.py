@@ -4,9 +4,6 @@ import random
 import discord
 from discord.ext import commands
 from discord import app_commands
-from dotenv import load_dotenv
-
-load_dotenv()
 
 GIPHY_API_KEY = os.getenv("GIPHY_API_KEY")
 GIPHY_URL = "https://api.giphy.com/v1/gifs/search"
