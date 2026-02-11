@@ -17,27 +17,41 @@ class Events(commands.Cog):
         url = "https://sky-clock.netlify.app/"
         results = []
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage"
+                    ]
+                )
 
-            await page.goto(url, wait_until="networkidle")
-            await page.wait_for_selector("tr.event")
+                page = await browser.new_page()
 
-            rows = await page.query_selector_all("tr.event")
+                # Avoid networkidle (can hang forever in cloud)
+                await page.goto(url, timeout=60000)
 
-            for row in rows:
-                cols = await row.query_selector_all("td")
-                if len(cols) < 4:
-                    continue
+                # Add timeout so it never waits forever
+                await page.wait_for_selector("tr.event", timeout=15000)
 
-                name = (await cols[1].inner_text()).strip()
-                next_time = (await cols[2].inner_text()).strip()
-                time_to_next = (await cols[3].inner_text()).strip()
+                rows = await page.query_selector_all("tr.event")
 
-                results.append((name, next_time, time_to_next))
+                for row in rows:
+                    cols = await row.query_selector_all("td")
+                    if len(cols) < 4:
+                        continue
 
-            await browser.close()
+                    name = (await cols[1].inner_text()).strip()
+                    next_time = (await cols[2].inner_text()).strip()
+                    time_to_next = (await cols[3].inner_text()).strip()
+
+                    results.append((name, next_time, time_to_next))
+
+                await browser.close()
+
+        except Exception as e:
+            print("Playwright error:", e)
 
         return results
 
@@ -46,18 +60,23 @@ class Events(commands.Cog):
 
         hour, minute = map(int, time_str.split(":"))
         event_time = now_ist.replace(
-            hour=hour, minute=minute, second=0, microsecond=0
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0
         )
 
         if event_time < now_ist:
             event_time += timedelta(days=1)
 
         unix_ts = int(event_time.timestamp())
+
+        # <t:...:t> = local time display
         return f"<t:{unix_ts}:t>"
 
     @app_commands.command(
         name="events",
-        description="Show upcoming Sky events (local time)"
+        description="Show upcoming Sky events (auto local time)"
     )
     async def events(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
@@ -65,7 +84,7 @@ class Events(commands.Cog):
         data = await self.fetch_events()
 
         if not data:
-            await interaction.followup.send("❌ No events found.")
+            await interaction.followup.send("❌ Failed to fetch events.")
             return
 
         embed = discord.Embed(
@@ -74,6 +93,7 @@ class Events(commands.Cog):
         )
 
         for name, next_time, remaining in data:
+
             if ":" in next_time:
                 local_time = self.to_discord_timestamp(next_time)
             else:
@@ -81,11 +101,16 @@ class Events(commands.Cog):
 
             embed.add_field(
                 name=name,
-                value=f"🕒 **Next:** {local_time}\n⏳ **In:** `{remaining}`",
+                value=(
+                    f"🕒 **Next:** {local_time}\n"
+                    f"⏳ **In:** `{remaining}`"
+                ),
                 inline=True
             )
 
-        embed.set_footer(text="Times auto-convert to your local timezone")
+        embed.set_footer(
+            text="Times automatically convert to your local timezone"
+        )
 
         await interaction.followup.send(embed=embed)
 
