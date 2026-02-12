@@ -6,6 +6,17 @@ from datetime import datetime, timedelta, timezone
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+class EventsView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.primary)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self.cog.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -15,8 +26,6 @@ class Events(commands.Cog):
 
     def next_interval_event(self, minute, interval, hour_offset=0):
         now = self.now_ist()
-
-        # Anchor from midnight with optional hour offset
         base = now.replace(hour=hour_offset, minute=minute, second=0, microsecond=0)
 
         while base <= now:
@@ -24,17 +33,13 @@ class Events(commands.Cog):
 
         return base
 
-    @app_commands.command(name="events", description="Shows upcoming event times")
-    async def events(self, interaction: discord.Interaction):
-
+    def build_embed(self):
         now = self.now_ist()
 
-        # ✅ Correct schedules
         turtle = self.next_interval_event(minute=20, interval=2, hour_offset=0)
         grandma = self.next_interval_event(minute=5, interval=2, hour_offset=0)
         geyser = self.next_interval_event(minute=35, interval=2, hour_offset=1)
 
-        # 🔥 Daily Reset at 13:30 IST
         reset = now.replace(hour=13, minute=30, second=0, microsecond=0)
         if reset <= now:
             reset += timedelta(days=1)
@@ -62,7 +67,13 @@ class Events(commands.Cog):
                 inline=False
             )
 
-        await interaction.response.send_message(embed=embed)
+        return embed
+
+    @app_commands.command(name="events", description="Shows upcoming event times")
+    async def events(self, interaction: discord.Interaction):
+        embed = self.build_embed()
+        view = EventsView(self)
+        await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot):
