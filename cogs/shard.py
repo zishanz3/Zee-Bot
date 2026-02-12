@@ -11,10 +11,13 @@ class Shard(commands.GroupCog, name="shard"):
         self.bot = bot
         self.la = ZoneInfo("America/Los_Angeles")
 
-        # 🔥 Anchor = TODAY (confirmed BLACK)
+        # Anchor: confirmed BLACK shard day
         self.anchor_date = datetime.now(self.la).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
+
+        # Global correction (your discovered offset)
+        self.global_time_adjust = timedelta(minutes=12, seconds=30)
 
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
@@ -24,7 +27,7 @@ class Shard(commands.GroupCog, name="shard"):
 
         self.realms = ["Prairie", "Forest", "Valley", "Wasteland", "Vault"]
 
-        # 5 rotating shard offset groups
+        # Offsets (same order as original system)
         self.offsets = [
             timedelta(hours=1, minutes=50),
             timedelta(hours=2, minutes=10),
@@ -33,10 +36,11 @@ class Shard(commands.GroupCog, name="shard"):
             timedelta(hours=3, minutes=30),
         ]
 
-    # =========================
-    # BUILD SHARD FOR DATE
-    # =========================
+    # =========================================
+    # BUILD SHARD SYSTEM
+    # =========================================
     def build_shard(self, current_time, filter_color=None):
+
         now = current_time.astimezone(self.la)
 
         for days_ahead in range(15):
@@ -48,13 +52,13 @@ class Shard(commands.GroupCog, name="shard"):
             # Alternate daily
             is_red = (cycle_day % 2) == 1
 
-            # Filter color if requested
+            # Filter by color if needed
             if filter_color == "red" and not is_red:
                 continue
             if filter_color == "black" and is_red:
                 continue
 
-            # 5-day rotation
+            # Correct 2-group / 3-group rotation
             half_cycle = cycle_day // 2
 
             if is_red:
@@ -62,17 +66,20 @@ class Shard(commands.GroupCog, name="shard"):
             else:
                 group_index = half_cycle % 2
 
-
             interval = self.red_interval if is_red else self.black_interval
             first_start = today + self.offsets[group_index]
 
             occurrences = []
             for i in range(3):
-                start = first_start + (interval * i)
+                start = (
+                    first_start
+                    + (interval * i)
+                    + self.global_time_adjust
+                )
                 end = start + self.end_offset
                 occurrences.append((start, end))
 
-            # If today, skip if finished
+            # Skip if today's shard already finished
             if days_ahead == 0:
                 if now >= occurrences[-1][1]:
                     continue
@@ -88,10 +95,11 @@ class Shard(commands.GroupCog, name="shard"):
 
         return None
 
-    # =========================
-    # EMBED
-    # =========================
+    # =========================================
+    # EMBED DISPLAY
+    # =========================================
     async def send_embed(self, interaction, data, title):
+
         if not data:
             await interaction.response.send_message("No shard found.")
             return
@@ -105,31 +113,41 @@ class Shard(commands.GroupCog, name="shard"):
             name="Type",
             value="🔴 Red Shard" if data["isRed"] else "⚫ Black Shard"
         )
+
         embed.add_field(name="Realm", value=data["realm"])
 
         now = data["now"]
         status = "Not active"
         countdown = ""
+        occurrence_text = ""
 
         for i, (start, end) in enumerate(data["occurrences"], 1):
+
+            occurrence_text += (
+                f"**Occurrence {i}**\n"
+                f"Start: <t:{int(start.timestamp())}:t>\n"
+                f"End: <t:{int(end.timestamp())}:t>\n\n"
+            )
+
             if start <= now <= end:
                 status = f"🔥 Occurrence {i} ACTIVE"
                 countdown = f"⏳ Ends in `{str(end - now).split('.')[0]}`"
-                break
-            elif now < start:
+
+            elif now < start and countdown == "":
                 countdown = f"⏳ Starts in `{str(start - now).split('.')[0]}`"
-                break
 
         embed.add_field(name="Status", value=status, inline=False)
 
         if countdown:
             embed.add_field(name="Countdown", value=countdown, inline=False)
 
+        embed.add_field(name="Occurrences", value=occurrence_text, inline=False)
+
         await interaction.response.send_message(embed=embed)
 
-    # =========================
+    # =========================================
     # COMMANDS
-    # =========================
+    # =========================================
 
     @app_commands.command(name="today")
     async def today(self, interaction: discord.Interaction):
