@@ -53,35 +53,36 @@ class Shard(commands.GroupCog, name="shard"):
             },
         ]
 
-    # =========================
+    # ======================
     # CORE CALCULATION
-    # =========================
-    def calculate_for_date(self, base_date):
+    # ======================
+    def calculate_for_date(self, dt):
         la = ZoneInfo("America/Los_Angeles")
-        now = base_date.astimezone(la)
+        now = dt.astimezone(la)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        day_of_month = today.day
+        day = today.day
         weekday = today.isoweekday()
 
-        is_red = day_of_month % 2 == 1
-        realm_idx = (day_of_month - 1) % 5
+        is_red = day % 2 == 1
+        realm_index = (day - 1) % 5
 
-        if day_of_month % 2 == 1:
-            info_index = int(((day_of_month - 1) / 2) % 3) + 2
+        if is_red:
+            info_index = ((day - 1) // 2) % 3 + 2
         else:
-            info_index = int((day_of_month / 2) % 2)
+            info_index = (day // 2) % 2
 
-        info = self.shards_info[info_index]
-        has_shard = weekday not in info["no_shard_wkday"]
+        config = self.shards_info[info_index]
+        has_shard = weekday not in config["no_shard_wkday"]
 
-        map_name = info["maps"][realm_idx]
-        reward = info.get("def_reward") if is_red else None
-        first_start = today + info["offset"]
+        map_name = config["maps"][realm_index]
+        reward = config.get("def_reward") if is_red else None
+
+        first_start = today + config["offset"]
 
         occurrences = []
         for i in range(3):
-            start = first_start + (info["interval"] * i)
+            start = first_start + config["interval"] * i
             land = start + self.land_offset
             end = start + self.end_offset
             occurrences.append((start, land, end))
@@ -90,66 +91,55 @@ class Shard(commands.GroupCog, name="shard"):
             "now": now,
             "is_red": is_red,
             "has_shard": has_shard,
-            "realm": self.realms[realm_idx],
+            "realm": self.realms[realm_index],
             "map": map_name,
             "reward": reward,
             "occurrences": occurrences,
         }
 
-    # =========================
-    # FIND NEXT SHARD (FIXED)
-    # =========================
-def find_next_shard(self, color_filter=None):
-    la = ZoneInfo("America/Los_Angeles")
-    now = datetime.now(la)
+    # ======================
+    # NEXT SHARD (STABLE VERSION)
+    # ======================
+    def find_next_shard(self, color_filter=None):
+        la = ZoneInfo("America/Los_Angeles")
+        now = datetime.now(la)
 
-    check_date = now
+        for days_ahead in range(15):
+            check_time = now + timedelta(days=days_ahead)
+            data = self.calculate_for_date(check_time)
 
-    for _ in range(15):
-        data = self.calculate_for_date(check_date)
+            if not data["has_shard"]:
+                continue
 
-        if data["has_shard"]:
-            last_end = data["occurrences"][-1][2]
-
-            # If checking today, use real current time
-            if check_date.date() == now.date():
-                if now >= last_end:
-                    check_date += timedelta(days=1)
-                    continue
-            else:
-                # If checking future date, it's valid automatically
-                pass
-
-            # Apply red/black filter
             if color_filter == "red" and not data["is_red"]:
-                check_date += timedelta(days=1)
                 continue
 
             if color_filter == "black" and data["is_red"]:
-                check_date += timedelta(days=1)
                 continue
+
+            # If checking today, ensure it hasn't ended
+            if days_ahead == 0:
+                last_end = data["occurrences"][-1][2]
+                if now >= last_end:
+                    continue
 
             return data
 
-        check_date += timedelta(days=1)
+        return None
 
-    return None
-
-
-    # =========================
+    # ======================
     # EMBED BUILDER
-    # =========================
+    # ======================
     async def send_embed(self, interaction, data, title):
-        if not data or not data["has_shard"]:
+        if not data:
             await interaction.response.send_message("❌ No shard found.")
             return
-
-        now = data["now"]
 
         embed_color = discord.Color.red() if data["is_red"] else discord.Color.dark_gray()
         embed = discord.Embed(title=title, color=embed_color)
 
         shard_type = "🔴 Red Shard" if data["is_red"] else "⚫ Black Shard"
+
         embed.add_field(name="Type", value=shard_type, inline=False)
         embed.add_field(name="Realm", value=data["realm"], inline=True)
         embed.add_field(name="Map", value=data["map"], inline=True)
@@ -157,40 +147,42 @@ def find_next_shard(self, color_filter=None):
         if data["reward"]:
             embed.add_field(name="Reward (AC)", value=str(data["reward"]), inline=True)
 
-        status_text = ""
-        countdown_text = ""
+        now = data["now"]
+        status = "Not active"
+        countdown = ""
 
-        for idx, (start, land, end) in enumerate(data["occurrences"], 1):
+        for idx, (start, _, end) in enumerate(data["occurrences"], 1):
             if start <= now <= end:
-                status_text = f"🔥 **Occurrence {idx} is ACTIVE NOW!**"
+                status = f"🔥 Occurrence {idx} is ACTIVE!"
                 remaining = end - now
-                countdown_text = f"⏳ Ends in: `{str(remaining).split('.')[0]}`"
+                countdown = f"⏳ Ends in: `{str(remaining).split('.')[0]}`"
                 break
-            elif now < start and not countdown_text:
+            elif now < start:
                 remaining = start - now
-                countdown_text = f"⏳ Starts in: `{str(remaining).split('.')[0]}`"
+                countdown = f"⏳ Starts in: `{str(remaining).split('.')[0]}`"
+                break
 
-        embed.add_field(name="Status", value=status_text or "Not active", inline=False)
+        embed.add_field(name="Status", value=status, inline=False)
 
-        if countdown_text:
-            embed.add_field(name="Countdown", value=countdown_text, inline=False)
+        if countdown:
+            embed.add_field(name="Countdown", value=countdown, inline=False)
 
-        times_text = ""
-        for idx, (start, land, end) in enumerate(data["occurrences"], 1):
-            times_text += (
-                f"**Occurrence {idx}**\n"
+        time_text = ""
+        for i, (start, land, end) in enumerate(data["occurrences"], 1):
+            time_text += (
+                f"**Occurrence {i}**\n"
                 f"Start: <t:{int(start.timestamp())}:t>\n"
                 f"Land: <t:{int(land.timestamp())}:t>\n"
                 f"End: <t:{int(end.timestamp())}:t>\n\n"
             )
 
-        embed.add_field(name="Times", value=times_text, inline=False)
+        embed.add_field(name="Times", value=time_text, inline=False)
 
         await interaction.response.send_message(embed=embed)
 
-    # =========================
+    # ======================
     # SUBCOMMANDS
-    # =========================
+    # ======================
 
     @app_commands.command(name="today", description="Show today's shard")
     async def today(self, interaction: discord.Interaction):
