@@ -9,7 +9,6 @@ class Shard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # === CONSTANTS ===
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
 
@@ -54,13 +53,13 @@ class Shard(commands.Cog):
             },
         ]
 
-    def get_shard_info(self):
+    def calculate_for_date(self, base_date):
         la = ZoneInfo("America/Los_Angeles")
-        now = datetime.now(la)
+        now = base_date.astimezone(la)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         day_of_month = today.day
-        weekday = today.isoweekday()  # 1 = Mon, 7 = Sun
+        weekday = today.isoweekday()
 
         is_red = day_of_month % 2 == 1
         realm_idx = (day_of_month - 1) % 5
@@ -71,15 +70,10 @@ class Shard(commands.Cog):
             info_index = int((day_of_month / 2) % 2)
 
         info = self.shards_info[info_index]
-
         has_shard = weekday not in info["no_shard_wkday"]
-
         map_name = info["maps"][realm_idx]
 
-        reward = None
-        if is_red:
-            reward = info.get("def_reward", 2)
-
+        reward = info.get("def_reward") if is_red else None
         first_start = today + info["offset"]
 
         occurrences = []
@@ -91,6 +85,7 @@ class Shard(commands.Cog):
 
         return {
             "now": now,
+            "today": today,
             "is_red": is_red,
             "has_shard": has_shard,
             "realm": self.realms[realm_idx],
@@ -99,19 +94,45 @@ class Shard(commands.Cog):
             "occurrences": occurrences,
         }
 
-    @app_commands.command(name="shard", description="Get today's Sky shard info")
-    async def shard(self, interaction: discord.Interaction):
+    def find_next_shard(self):
+        la = ZoneInfo("America/Los_Angeles")
+        check_date = datetime.now(la)
 
-        data = self.get_shard_info()
+        for _ in range(10):  # search next 10 days max
+            data = self.calculate_for_date(check_date)
 
-        if not data["has_shard"]:
-            await interaction.response.send_message("❌ No shard today.")
+            if data["has_shard"]:
+                last_end = data["occurrences"][-1][2]
+                if check_date < last_end:
+                    return data
+
+            check_date = (check_date + timedelta(days=1)).replace(
+                hour=12, minute=0, second=0, microsecond=0
+            )
+
+        return None
+
+    @app_commands.command(name="shard", description="Get Sky shard info")
+    @app_commands.describe(mode="Choose: today or next")
+    async def shard(self, interaction: discord.Interaction, mode: str = "today"):
+
+        la = ZoneInfo("America/Los_Angeles")
+
+        if mode.lower() == "next":
+            data = self.find_next_shard()
+            title_prefix = "🔮 Next Shard"
+        else:
+            data = self.calculate_for_date(datetime.now(la))
+            title_prefix = "🔥 Today's Shard"
+
+        if not data or not data["has_shard"]:
+            await interaction.response.send_message("❌ No shard found.")
             return
 
         color = discord.Color.red() if data["is_red"] else discord.Color.dark_gray()
 
         embed = discord.Embed(
-            title="🔥 Sky Shard Info",
+            title=title_prefix,
             color=color,
         )
 
@@ -133,7 +154,7 @@ class Shard(commands.Cog):
                 f"End: <t:{int(end.timestamp())}:t>\n\n"
             )
 
-        embed.add_field(name="Times (Your Local Time)", value=times_text, inline=False)
+        embed.add_field(name="Times (Auto Localized)", value=times_text, inline=False)
 
         await interaction.response.send_message(embed=embed)
 
