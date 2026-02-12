@@ -17,7 +17,7 @@ class Shard(commands.GroupCog, name="shard"):
         )
 
         # Global correction (your discovered offset)
-        self.global_time_adjust = timedelta(minutes=7, seconds=30)
+        self.global_time_adjust = timedelta(minutes=8, seconds=40)
 
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
