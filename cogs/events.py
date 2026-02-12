@@ -15,46 +15,58 @@ class Events(commands.Cog):
         self.bot = bot
 
     async def fetch_events(self):
-        url = "https://sky-clock.netlify.app/"
+        base_url = "https://sky-clock.netlify.app"
         results = []
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            # Get main HTML page
+            async with session.get(base_url) as resp:
                 html = await resp.text()
 
-        # Extract event rows directly from the HTML table
+            # Find JS bundle file path
+            script_match = re.search(r'src="(/assets/index-.*?\.js)"', html)
+
+            if not script_match:
+                print("JS bundle not found")
+                return []
+
+            script_url = base_url + script_match.group(1)
+
+            # Fetch JS bundle
+            async with session.get(script_url) as js_resp:
+                js_content = await js_resp.text()
+
+        # Extract event objects from JS content
         pattern = re.findall(
-            r'<tr class="event">.*?<td.*?</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>',
-            html,
-            re.DOTALL
+            r'"name":"(.*?)".*?"next":"(.*?)".*?"remaining":"(.*?)"',
+            js_content
         )
 
-        for name, next_time, time_to_next in pattern:
-            results.append((
-                name.strip(),
-                next_time.strip(),
-                time_to_next.strip()
-            ))
+        for name, next_time, remaining in pattern:
+            results.append((name, next_time, remaining))
 
         return results
 
     def to_discord_timestamp(self, time_str: str):
-        now_ist = datetime.now(IST)
+        try:
+            now_ist = datetime.now(IST)
 
-        hour, minute = map(int, time_str.split(":"))
-        event_time = now_ist.replace(
-            hour=hour,
-            minute=minute,
-            second=0,
-            microsecond=0
-        )
+            hour, minute = map(int, time_str.split(":"))
+            event_time = now_ist.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
 
-        if event_time < now_ist:
-            event_time += timedelta(days=1)
+            if event_time < now_ist:
+                event_time += timedelta(days=1)
 
-        unix_ts = int(event_time.timestamp())
+            unix_ts = int(event_time.timestamp())
 
-        return f"<t:{unix_ts}:t>"
+            return f"<t:{unix_ts}:t>"
+        except Exception:
+            return time_str
 
     @app_commands.command(
         name="events",
