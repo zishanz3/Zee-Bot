@@ -55,32 +55,25 @@ class Shard(commands.GroupCog, name="shard"):
             },
         ]
 
-    # =============================
-    # EXACT getShardInfo PORT
-    # =============================
-    def get_shard_info(self, dt):
+    # =========================
+    # DIRECT PORT OF getShardInfo(date)
+    # =========================
+    def get_shard_info(self, date):
         la = ZoneInfo("America/Los_Angeles")
-        today = dt.astimezone(la).replace(hour=0, minute=0, second=0, microsecond=0)
+        date = date.astimezone(la)
+
+        today = date.replace(hour=0, minute=0, second=0, microsecond=0)
 
         day_of_month = today.day
         weekday = today.isoweekday()
 
-        # EXACT parity logic
-        is_red = (day_of_month % 2) == 1
-
+        is_red = day_of_month % 2 == 1
         realm_idx = (day_of_month - 1) % 5
 
-        # EXACT JS float division behavior
         if is_red:
-            # (((dayOfMth - 1) / 2) % 3) + 2
-            float_val = ((day_of_month - 1) / 2)
-            mod_val = float_val % 3
-            info_index = math.floor(mod_val) + 2
+            info_index = int((((day_of_month - 1) / 2) % 3) + 2)
         else:
-            # (dayOfMth / 2) % 2
-            float_val = (day_of_month / 2)
-            mod_val = float_val % 2
-            info_index = math.floor(mod_val)
+            info_index = int((day_of_month / 2) % 2)
 
         config = self.shards_info[info_index]
 
@@ -90,13 +83,13 @@ class Shard(commands.GroupCog, name="shard"):
 
         occurrences = []
         for i in range(3):
-            start = first_start + config["interval"] * i
+            start = first_start + (config["interval"] * i)
             land = start + self.land_offset
             end = start + self.end_offset
             occurrences.append((start, land, end))
 
         return {
-            "date": dt.astimezone(la),
+            "date": date,
             "isRed": is_red,
             "hasShard": has_shard,
             "lastEnd": occurrences[2][2],
@@ -106,9 +99,9 @@ class Shard(commands.GroupCog, name="shard"):
             "occurrences": occurrences,
         }
 
-    # =============================
-    # EXACT findNextShard PORT
-    # =============================
+    # =========================
+    # DIRECT PORT OF findNextShard
+    # =========================
     def find_next_shard(self, from_dt, only=None):
         la = ZoneInfo("America/Los_Angeles")
         current = from_dt.astimezone(la)
@@ -127,9 +120,9 @@ class Shard(commands.GroupCog, name="shard"):
 
             current = current + timedelta(days=1)
 
-    # =============================
+    # =========================
     # EMBED
-    # =============================
+    # =========================
     async def send_embed(self, interaction, info, title):
         embed_color = discord.Color.red() if info["isRed"] else discord.Color.dark_gray()
         embed = discord.Embed(title=title, color=embed_color)
@@ -161,22 +154,6 @@ class Shard(commands.GroupCog, name="shard"):
 
         await interaction.response.send_message(embed=embed)
 
-    # =============================
-    # COMMANDS
-    # =============================
-
-    @app_commands.command(name="today")
-    async def today(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.get_shard_info(now)
-        await self.send_embed(interaction, info, "Today's Shard")
-
-    @app_commands.command(name="next")
-    async def next(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.find_next_shard(now)
-        await self.send_embed(interaction, info, "Next Shard")
-
     @app_commands.command(name="red")
     async def red(self, interaction: discord.Interaction):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
@@ -189,6 +166,18 @@ class Shard(commands.GroupCog, name="shard"):
         info = self.find_next_shard(now, "black")
         await self.send_embed(interaction, info, "Next Black Shard")
 
+    @app_commands.command(name="next")
+    async def next(self, interaction: discord.Interaction):
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        info = self.find_next_shard(now)
+        await self.send_embed(interaction, info, "Next Shard")
 
-async def setup(bot: commands.Bot):
+    @app_commands.command(name="today")
+    async def today(self, interaction: discord.Interaction):
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        info = self.get_shard_info(now)
+        await self.send_embed(interaction, info, "Today's Shard")
+
+
+async def setup(bot):
     await bot.add_cog(Shard(bot))
