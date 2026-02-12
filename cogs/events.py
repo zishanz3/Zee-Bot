@@ -29,15 +29,13 @@ class Events(commands.Cog):
 
         now = self.now_ist()
 
-        # ✅ Correct schedules (already +30 adjusted)
+        # ✅ Correct schedules
         turtle = self.next_interval_event(minute=20, interval=2, hour_offset=0)
         grandma = self.next_interval_event(minute=5, interval=2, hour_offset=0)
-
-        # 🔥 Geyser offset by 1 hour in the 2-hour cycle
         geyser = self.next_interval_event(minute=35, interval=2, hour_offset=1)
 
-        # Daily reset fixed at 14:00 IST
-        reset = now.replace(hour=14, minute=0, second=0, microsecond=0)
+        # 🔥 Daily Reset at 13:30 IST
+        reset = now.replace(hour=13, minute=30, second=0, microsecond=0)
         if reset <= now:
             reset += timedelta(days=1)
 
