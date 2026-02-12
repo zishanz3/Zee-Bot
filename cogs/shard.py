@@ -14,7 +14,7 @@ class Shard(commands.GroupCog, name="shard"):
 
         # 🔥 Anchor date (CONFIRMED BLACK SHARD DAY)
         # Adjust if needed
-        self.anchor_date = datetime(2024, 1, 1, tzinfo=self.la)
+        self.anchor_date = datetime(2024, 1, 2, tzinfo=self.la)
 
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
