@@ -1,7 +1,8 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from playwright.async_api import async_playwright
+import aiohttp
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -17,41 +18,23 @@ class Events(commands.Cog):
         url = "https://sky-clock.netlify.app/"
         results = []
 
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage"
-                    ]
-                )
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                html = await resp.text()
 
-                page = await browser.new_page()
+        # Extract event rows directly from the HTML table
+        pattern = re.findall(
+            r'<tr class="event">.*?<td.*?</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>',
+            html,
+            re.DOTALL
+        )
 
-                # Avoid networkidle (can hang forever in cloud)
-                await page.goto(url, timeout=60000)
-
-                # Add timeout so it never waits forever
-                await page.wait_for_selector("tr.event", timeout=15000)
-
-                rows = await page.query_selector_all("tr.event")
-
-                for row in rows:
-                    cols = await row.query_selector_all("td")
-                    if len(cols) < 4:
-                        continue
-
-                    name = (await cols[1].inner_text()).strip()
-                    next_time = (await cols[2].inner_text()).strip()
-                    time_to_next = (await cols[3].inner_text()).strip()
-
-                    results.append((name, next_time, time_to_next))
-
-                await browser.close()
-
-        except Exception as e:
-            print("Playwright error:", e)
+        for name, next_time, time_to_next in pattern:
+            results.append((
+                name.strip(),
+                next_time.strip(),
+                time_to_next.strip()
+            ))
 
         return results
 
@@ -71,7 +54,6 @@ class Events(commands.Cog):
 
         unix_ts = int(event_time.timestamp())
 
-        # <t:...:t> = local time display
         return f"<t:{unix_ts}:t>"
 
     @app_commands.command(
@@ -81,38 +63,43 @@ class Events(commands.Cog):
     async def events(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
-        data = await self.fetch_events()
+        try:
+            data = await self.fetch_events()
 
-        if not data:
-            await interaction.followup.send("❌ Failed to fetch events.")
-            return
+            if not data:
+                await interaction.followup.send("❌ Failed to fetch events.")
+                return
 
-        embed = discord.Embed(
-            title="✨ Upcoming Events (Wax)",
-            color=discord.Color.blurple()
-        )
-
-        for name, next_time, remaining in data:
-
-            if ":" in next_time:
-                local_time = self.to_discord_timestamp(next_time)
-            else:
-                local_time = next_time
-
-            embed.add_field(
-                name=name,
-                value=(
-                    f"🕒 **Next:** {local_time}\n"
-                    f"⏳ **In:** `{remaining}`"
-                ),
-                inline=True
+            embed = discord.Embed(
+                title="✨ Upcoming Events (Wax)",
+                color=discord.Color.blurple()
             )
 
-        embed.set_footer(
-            text="Times automatically convert to your local timezone"
-        )
+            for name, next_time, remaining in data:
 
-        await interaction.followup.send(embed=embed)
+                if ":" in next_time:
+                    local_time = self.to_discord_timestamp(next_time)
+                else:
+                    local_time = next_time
+
+                embed.add_field(
+                    name=name,
+                    value=(
+                        f"🕒 **Next:** {local_time}\n"
+                        f"⏳ **In:** `{remaining}`"
+                    ),
+                    inline=True
+                )
+
+            embed.set_footer(
+                text="Times automatically convert to your local timezone"
+            )
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print("Events error:", e)
+            await interaction.followup.send("❌ Error fetching events.")
 
 
 async def setup(bot: commands.Bot):

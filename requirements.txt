@@ -1,4 +1,4 @@
 discord.py
-playwright
+aiohttp
 tzdata
 requests
