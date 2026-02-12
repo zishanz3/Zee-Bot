@@ -1,12 +1,12 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
-class Shard(commands.Cog):
-    def __init__(self, bot):
+class Shard(commands.GroupCog, name="shard"):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
         self.land_offset = timedelta(minutes=8, seconds=40)
@@ -40,7 +40,7 @@ class Shard(commands.Cog):
             {
                 "no_shard_wkday": [2, 3],
                 "interval": self.red_interval,
-                "offset": timedelta(hours=2, minutes=20),
+                "offset": timedelta(hours=2, minutes= 20),
                 "maps": ["Bird Nest", "Treehouse", "Village of Dreams", "Crabfield", "Jellyfish Cove"],
                 "def_reward": 2.5,
             },
@@ -53,6 +53,9 @@ class Shard(commands.Cog):
             },
         ]
 
+    # =========================
+    # CORE CALCULATION
+    # =========================
     def calculate_for_date(self, base_date):
         la = ZoneInfo("America/Los_Angeles")
         now = base_date.astimezone(la)
@@ -71,8 +74,8 @@ class Shard(commands.Cog):
 
         info = self.shards_info[info_index]
         has_shard = weekday not in info["no_shard_wkday"]
-        map_name = info["maps"][realm_idx]
 
+        map_name = info["maps"][realm_idx]
         reward = info.get("def_reward") if is_red else None
         first_start = today + info["offset"]
 
@@ -85,7 +88,6 @@ class Shard(commands.Cog):
 
         return {
             "now": now,
-            "today": today,
             "is_red": is_red,
             "has_shard": has_shard,
             "realm": self.realms[realm_idx],
@@ -94,56 +96,67 @@ class Shard(commands.Cog):
             "occurrences": occurrences,
         }
 
-    def find_next_shard(self):
+    def find_next_shard(self, color_filter=None):
         la = ZoneInfo("America/Los_Angeles")
         check_date = datetime.now(la)
 
-        for _ in range(10):  # search next 10 days max
+        for _ in range(15):
             data = self.calculate_for_date(check_date)
 
             if data["has_shard"]:
-                last_end = data["occurrences"][-1][2]
-                if check_date < last_end:
-                    return data
+                if color_filter:
+                    if color_filter == "red" and not data["is_red"]:
+                        pass
+                    elif color_filter == "black" and data["is_red"]:
+                        pass
+                    else:
+                        return data
+                else:
+                    last_end = data["occurrences"][-1][2]
+                    if check_date < last_end:
+                        return data
 
-            check_date = (check_date + timedelta(days=1)).replace(
-                hour=12, minute=0, second=0, microsecond=0
-            )
+            check_date += timedelta(days=1)
 
         return None
 
-    @app_commands.command(name="shard", description="Get Sky shard info")
-    @app_commands.describe(mode="Choose: today or next")
-    async def shard(self, interaction: discord.Interaction, mode: str = "today"):
-
-        la = ZoneInfo("America/Los_Angeles")
-
-        if mode.lower() == "next":
-            data = self.find_next_shard()
-            title_prefix = "🔮 Next Shard"
-        else:
-            data = self.calculate_for_date(datetime.now(la))
-            title_prefix = "🔥 Today's Shard"
-
+    # =========================
+    # EMBED BUILDER
+    # =========================
+    async def send_embed(self, interaction, data, title):
         if not data or not data["has_shard"]:
             await interaction.response.send_message("❌ No shard found.")
             return
 
-        color = discord.Color.red() if data["is_red"] else discord.Color.dark_gray()
-
-        embed = discord.Embed(
-            title=title_prefix,
-            color=color,
-        )
+        now = data["now"]
+        embed_color = discord.Color.red() if data["is_red"] else discord.Color.dark_gray()
+        embed = discord.Embed(title=title, color=embed_color)
 
         shard_type = "🔴 Red Shard" if data["is_red"] else "⚫ Black Shard"
-
         embed.add_field(name="Type", value=shard_type, inline=False)
         embed.add_field(name="Realm", value=data["realm"], inline=True)
         embed.add_field(name="Map", value=data["map"], inline=True)
 
         if data["reward"]:
             embed.add_field(name="Reward (AC)", value=str(data["reward"]), inline=True)
+
+        # ACTIVE + COUNTDOWN
+        status_text = ""
+        countdown_text = ""
+
+        for idx, (start, land, end) in enumerate(data["occurrences"], 1):
+            if start <= now <= end:
+                status_text = f"🔥 **Occurrence {idx} is ACTIVE NOW!**"
+                remaining = end - now
+                countdown_text = f"⏳ Ends in: `{str(remaining).split('.')[0]}`"
+            elif now < start and not countdown_text:
+                remaining = start - now
+                countdown_text = f"⏳ Starts in: `{str(remaining).split('.')[0]}`"
+
+        embed.add_field(name="Status", value=status_text or "Not active", inline=False)
+
+        if countdown_text:
+            embed.add_field(name="Countdown", value=countdown_text, inline=False)
 
         times_text = ""
         for idx, (start, land, end) in enumerate(data["occurrences"], 1):
@@ -154,10 +167,35 @@ class Shard(commands.Cog):
                 f"End: <t:{int(end.timestamp())}:t>\n\n"
             )
 
-        embed.add_field(name="Times (Auto Localized)", value=times_text, inline=False)
+        embed.add_field(name="Times", value=times_text, inline=False)
 
         await interaction.response.send_message(embed=embed)
 
+    # =========================
+    # SUBCOMMANDS
+    # =========================
 
-async def setup(bot):
+    @app_commands.command(name="today", description="Show today's shard")
+    async def today(self, interaction: discord.Interaction):
+        la = ZoneInfo("America/Los_Angeles")
+        data = self.calculate_for_date(datetime.now(la))
+        await self.send_embed(interaction, data, "🔥 Today's Shard")
+
+    @app_commands.command(name="next", description="Show next shard")
+    async def next(self, interaction: discord.Interaction):
+        data = self.find_next_shard()
+        await self.send_embed(interaction, data, "🔮 Next Shard")
+
+    @app_commands.command(name="red", description="Show next red shard")
+    async def red(self, interaction: discord.Interaction):
+        data = self.find_next_shard("red")
+        await self.send_embed(interaction, data, "🔴 Next Red Shard")
+
+    @app_commands.command(name="black", description="Show next black shard")
+    async def black(self, interaction: discord.Interaction):
+        data = self.find_next_shard("black")
+        await self.send_embed(interaction, data, "⚫ Next Black Shard")
+
+
+async def setup(bot: commands.Bot):
     await bot.add_cog(Shard(bot))
