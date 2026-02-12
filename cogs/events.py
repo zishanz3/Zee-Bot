@@ -10,42 +10,14 @@ class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # FINAL CORRECT TIMES (already shifted +30 minutes)
-        self.events = [
-            {"name": "Turtle", "minute": 20, "interval": 2},
-            {"name": "Geyser", "minute": 35, "interval": 2},
-            {"name": "Grandma", "minute": 5, "interval": 2},
-            {"name": "Shard Event", "minute": 26, "interval": 4},
-            {"name": "Forest Rainbow", "hour": 5, "minute": 30, "interval": 12},
-            {"name": "Daily Reset", "hour": 14, "minute": 0, "interval": 24},
-        ]
-
     def now_ist(self):
         return datetime.now(IST)
 
-    def get_next_occurrence(self, event):
+    def next_interval_event(self, minute, interval, hour_offset=0):
         now = self.now_ist()
 
-        # Events with fixed hour (Rainbow & Reset)
-        if event.get("hour") is not None:
-            next_time = now.replace(
-                hour=event["hour"],
-                minute=event["minute"],
-                second=0,
-                microsecond=0
-            )
-
-            while next_time <= now:
-                next_time += timedelta(hours=event["interval"])
-
-            return next_time
-
-        # Standard repeating events (every X hours at fixed minute)
-        interval = event["interval"]
-        minute = event["minute"]
-
-        # Anchor from midnight
-        base = now.replace(hour=0, minute=minute, second=0, microsecond=0)
+        # Anchor from midnight with optional hour offset
+        base = now.replace(hour=hour_offset, minute=minute, second=0, microsecond=0)
 
         while base <= now:
             base += timedelta(hours=interval)
@@ -55,28 +27,40 @@ class Events(commands.Cog):
     @app_commands.command(name="events", description="Shows upcoming event times")
     async def events(self, interaction: discord.Interaction):
 
+        now = self.now_ist()
+
+        # ✅ Correct schedules (already +30 adjusted)
+        turtle = self.next_interval_event(minute=20, interval=2, hour_offset=0)
+        grandma = self.next_interval_event(minute=5, interval=2, hour_offset=0)
+
+        # 🔥 Geyser offset by 1 hour in the 2-hour cycle
+        geyser = self.next_interval_event(minute=35, interval=2, hour_offset=1)
+
+        # Daily reset fixed at 14:00 IST
+        reset = now.replace(hour=14, minute=0, second=0, microsecond=0)
+        if reset <= now:
+            reset += timedelta(days=1)
+
+        events = [
+            ("Turtle", turtle),
+            ("Grandma", grandma),
+            ("Geyser", geyser),
+            ("Daily Reset", reset)
+        ]
+
+        events.sort(key=lambda x: x[1])
+
         embed = discord.Embed(
             title="🌍 Upcoming Events",
             description="Times shown in your local timezone.",
             color=discord.Color.blue()
         )
 
-        event_list = []
-
-        for event in self.events:
-            next_time = self.get_next_occurrence(event)
-            unix = int(next_time.timestamp())
-            event_list.append((event["name"], next_time, unix))
-
-        event_list.sort(key=lambda x: x[1])
-
-        for name, _, unix in event_list:
+        for name, time in events:
+            unix = int(time.timestamp())
             embed.add_field(
                 name=name,
-                value=(
-                    f"🕒 Next: <t:{unix}:F>\n"
-                    f"⏳ Starts: <t:{unix}:R>"
-                ),
+                value=f"🕒 Next: <t:{unix}:F>\n⏳ Starts: <t:{unix}:R>",
                 inline=False
             )
 
