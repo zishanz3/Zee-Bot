@@ -10,7 +10,7 @@ class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # ORIGINAL event schedule (no manual shifting)
+        # Base Schedule (original times BEFORE +30 shift)
         self.events = [
             {"name": "Geyser", "minute": 5, "interval": 2},
             {"name": "Grandma", "minute": 35, "interval": 2},
@@ -22,13 +22,13 @@ class Events(commands.Cog):
             {"name": "Daily Reset", "hour": 13, "minute": 30, "interval": None},
         ]
 
-    def get_now(self):
+    def now_ist(self):
         return datetime.now(IST)
 
     def get_next_occurrence(self, event):
-        now = self.get_now()
+        now = self.now_ist()
 
-        # Daily Reset (fixed time daily)
+        # 🟣 DAILY RESET (fixed time)
         if event["interval"] is None:
             next_time = now.replace(
                 hour=event["hour"],
@@ -38,27 +38,52 @@ class Events(commands.Cog):
             )
             if next_time <= now:
                 next_time += timedelta(days=1)
-        # Rainbow (specific hour)
-        elif event.get("hour") is not None:
-            next_time = now.replace(
-                hour=event["hour"],
-                minute=event["minute"],
-                second=0,
-                microsecond=0
-            )
-            while next_time <= now:
-                next_time += timedelta(hours=event["interval"])
-        else:
-            # Standard repeating events
-            next_time = now.replace(
-                minute=event["minute"],
-                second=0,
-                microsecond=0
-            )
-            while next_time <= now:
-                next_time += timedelta(hours=event["interval"])
 
-        # ✅ ADD +30 MINUTES PROPERLY HERE
+        # 🟡 EVENTS WITH FIXED START HOUR (e.g., Rainbow)
+        elif event.get("hour") is not None:
+            base_hour = event["hour"]
+            interval = event["interval"]
+
+            next_time = now.replace(
+                hour=base_hour,
+                minute=event["minute"],
+                second=0,
+                microsecond=0
+            )
+
+            while next_time <= now:
+                next_time += timedelta(hours=interval)
+
+        # 🔵 STANDARD INTERVAL EVENTS (every X hours at specific minute)
+        else:
+            interval = event["interval"]
+            minute = event["minute"]
+
+            current_hour = now.hour
+
+            # Find next aligned interval hour
+            if current_hour % interval == 0 and now.minute < minute:
+                next_hour = current_hour
+            else:
+                next_hour = ((current_hour // interval) + 1) * interval
+
+            # Handle 24-hour overflow
+            next_day = False
+            if next_hour >= 24:
+                next_hour -= 24
+                next_day = True
+
+            next_time = now.replace(
+                hour=next_hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
+
+            if next_day:
+                next_time += timedelta(days=1)
+
+        # ✅ ADD +30 MINUTES TO EVERYTHING
         next_time += timedelta(minutes=30)
 
         return next_time
@@ -68,7 +93,7 @@ class Events(commands.Cog):
 
         embed = discord.Embed(
             title="🌍 Upcoming Events",
-            description="Times shown in your local timezone automatically.",
+            description="Times are shown in your local timezone automatically.",
             color=discord.Color.blue()
         )
 
@@ -79,7 +104,7 @@ class Events(commands.Cog):
             unix = int(next_time.timestamp())
             event_list.append((event["name"], next_time, unix))
 
-        # Sort by soonest
+        # Sort by soonest event
         event_list.sort(key=lambda x: x[1])
 
         for name, _, unix in event_list:
