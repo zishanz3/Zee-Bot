@@ -1,130 +1,83 @@
 import discord
-from discord.ext import commands
 from discord import app_commands
-from playwright.async_api import async_playwright
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-import subprocess
-import os
+from discord.ext import commands
+from datetime import datetime, timedelta, timezone
 
-
-IST = ZoneInfo("Asia/Kolkata")
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class Events(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
-        self.browser_ready = False
 
-    async def ensure_browser(self):
-        """
-        Installs Chromium at runtime if not already installed.
-        This fixes Railway cache issues permanently.
-        """
-        if not self.browser_ready:
-            subprocess.run(["playwright", "install", "chromium"])
-            self.browser_ready = True
+        # Event Configuration
+        self.events = [
+            {"name": "Geyser", "minute": 5, "interval": 2},
+            {"name": "Grandma", "minute": 35, "interval": 2},
+            {"name": "Turtle", "minute": 50, "interval": 2},
+            {"name": "Shard Event", "minute": 56, "interval": 4},
+            {"name": "Sunset", "minute": 50, "interval": 2},
+            {"name": "Fairy Ring", "minute": 50, "interval": 1},
+            {"name": "Forest Rainbow", "hour": 5, "minute": 0, "interval": 12},
+            {"name": "Daily Reset", "hour": 13, "minute": 30, "interval": None},
+        ]
 
-    async def fetch_events(self):
-        await self.ensure_browser()
+    def get_now(self):
+        return datetime.now(IST)
 
-        url = "https://sky-clock.netlify.app/"
-        results = []
+    def get_next_occurrence(self, event):
+        now = self.get_now()
 
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage"
-                    ]
-                )
+        # Daily Reset (fixed time daily)
+        if event["interval"] is None:
+            next_time = now.replace(hour=event["hour"], minute=event["minute"], second=0, microsecond=0)
+            if next_time <= now:
+                next_time += timedelta(days=1)
+            return next_time
 
-                page = await browser.new_page()
-                await page.goto(url, timeout=60000)
+        # Special 12-hour rainbow event
+        if event.get("hour") is not None:
+            next_time = now.replace(hour=event["hour"], minute=event["minute"], second=0, microsecond=0)
+            while next_time <= now:
+                next_time += timedelta(hours=event["interval"])
+            return next_time
 
-                await page.wait_for_selector("tr.event", timeout=15000)
+        # Standard repeating event every X hours at specific minute
+        next_time = now.replace(minute=event["minute"], second=0, microsecond=0)
 
-                rows = await page.query_selector_all("tr.event")
+        while next_time <= now:
+            next_time += timedelta(hours=event["interval"])
 
-                for row in rows:
-                    cols = await row.query_selector_all("td")
-                    if len(cols) < 4:
-                        continue
+        return next_time
 
-                    name = (await cols[1].inner_text()).strip()
-                    next_time = (await cols[2].inner_text()).strip()
-                    remaining = (await cols[3].inner_text()).strip()
-
-                    results.append((name, next_time, remaining))
-
-                await browser.close()
-
-        except Exception as e:
-            print("Playwright error:", e)
-
-        return results
-
-    def to_discord_timestamp(self, time_str: str):
-        try:
-            now_ist = datetime.now(IST)
-
-            hour, minute = map(int, time_str.split(":"))
-            event_time = now_ist.replace(
-                hour=hour,
-                minute=minute,
-                second=0,
-                microsecond=0
-            )
-
-            if event_time < now_ist:
-                event_time += timedelta(days=1)
-
-            unix_ts = int(event_time.timestamp())
-
-            return f"<t:{unix_ts}:t>"
-        except Exception:
-            return time_str
-
-    @app_commands.command(
-        name="events",
-        description="Show upcoming Sky events"
-    )
+    @app_commands.command(name="events", description="Shows upcoming event times (IST)")
     async def events(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
 
-        data = await self.fetch_events()
-
-        if not data:
-            await interaction.followup.send("❌ Failed to fetch events.")
-            return
-
+        now = self.get_now()
         embed = discord.Embed(
-            title="✨ Upcoming Events (Wax)",
-            color=discord.Color.blurple()
+            title="🌍 Upcoming Events (IST)",
+            color=discord.Color.blue()
         )
 
-        for name, next_time, remaining in data:
+        for event in self.events:
+            next_time = self.get_next_occurrence(event)
+            time_left = next_time - now
 
-            if ":" in next_time:
-                local_time = self.to_discord_timestamp(next_time)
-            else:
-                local_time = next_time
+            total_seconds = int(time_left.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
 
             embed.add_field(
-                name=name,
+                name=event["name"],
                 value=(
-                    f"🕒 **Next:** {local_time}\n"
-                    f"⏳ **In:** `{remaining}`"
+                    f"🕒 Next: {next_time.strftime('%H:%M IST')}\n"
+                    f"⏳ Time Left: {hours}h {minutes}m"
                 ),
-                inline=True
+                inline=False
             )
 
-        embed.set_footer(text="Times auto convert to your local timezone")
-
-        await interaction.followup.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot):
     await bot.add_cog(Events(bot))
