@@ -99,37 +99,42 @@ class Shard(commands.GroupCog, name="shard"):
     # =========================
     # FIND NEXT SHARD (FIXED)
     # =========================
-    def find_next_shard(self, color_filter=None):
-        la = ZoneInfo("America/Los_Angeles")
-        now = datetime.now(la)
+def find_next_shard(self, color_filter=None):
+    la = ZoneInfo("America/Los_Angeles")
+    now = datetime.now(la)
 
-        check_date = now
+    check_date = now
 
-        for _ in range(15):
-            data = self.calculate_for_date(check_date)
+    for _ in range(15):
+        data = self.calculate_for_date(check_date)
 
-            if data["has_shard"]:
-                last_end = data["occurrences"][-1][2]
+        if data["has_shard"]:
+            last_end = data["occurrences"][-1][2]
 
-                # Skip if shard completely finished
+            # If checking today, use real current time
+            if check_date.date() == now.date():
                 if now >= last_end:
                     check_date += timedelta(days=1)
                     continue
+            else:
+                # If checking future date, it's valid automatically
+                pass
 
-                # Filter red/black
-                if color_filter == "red" and not data["is_red"]:
-                    check_date += timedelta(days=1)
-                    continue
+            # Apply red/black filter
+            if color_filter == "red" and not data["is_red"]:
+                check_date += timedelta(days=1)
+                continue
 
-                if color_filter == "black" and data["is_red"]:
-                    check_date += timedelta(days=1)
-                    continue
+            if color_filter == "black" and data["is_red"]:
+                check_date += timedelta(days=1)
+                continue
 
-                return data
+            return data
 
-            check_date += timedelta(days=1)
+        check_date += timedelta(days=1)
 
-        return None
+    return None
+
 
     # =========================
     # EMBED BUILDER
