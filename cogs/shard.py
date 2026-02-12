@@ -38,7 +38,8 @@ class Shard(commands.GroupCog, name="shard"):
     # ===============================
     def is_red_day(self, today):
         days_since = (today.date() - self.anchor_date.date()).days
-        return days_since % 2 == 1  # alternates daily
+        return days_since % 2 == 0
+
 
     # ===============================
     # REALM ROTATION (5-DAY LOOP)
