@@ -10,16 +10,16 @@ class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # Event Configuration
+        # Added +30 minutes to every event
         self.events = [
-            {"name": "Geyser", "minute": 5, "interval": 2},
-            {"name": "Grandma", "minute": 35, "interval": 2},
-            {"name": "Turtle", "minute": 50, "interval": 2},
-            {"name": "Shard Event", "minute": 56, "interval": 4},
-            {"name": "Sunset", "minute": 50, "interval": 2},
-            {"name": "Fairy Ring", "minute": 50, "interval": 1},
-            {"name": "Forest Rainbow", "hour": 5, "minute": 0, "interval": 12},
-            {"name": "Daily Reset", "hour": 13, "minute": 30, "interval": None},
+            {"name": "Geyser", "minute": 35, "interval": 2},
+            {"name": "Grandma", "minute": 5, "interval": 2},
+            {"name": "Turtle", "minute": 20, "interval": 2},
+            {"name": "Shard Event", "minute": 26, "interval": 4},
+            {"name": "Sunset", "minute": 20, "interval": 2},
+            {"name": "Fairy Ring", "minute": 20, "interval": 1},
+            {"name": "Forest Rainbow", "hour": 5, "minute": 30, "interval": 12},
+            {"name": "Daily Reset", "hour": 14, "minute": 0, "interval": None},  # 13:30 + 30 = 14:00
         ]
 
     def get_now(self):
@@ -28,50 +28,69 @@ class Events(commands.Cog):
     def get_next_occurrence(self, event):
         now = self.get_now()
 
-        # Daily Reset (fixed time daily)
+        # Daily fixed time event
         if event["interval"] is None:
-            next_time = now.replace(hour=event["hour"], minute=event["minute"], second=0, microsecond=0)
+            next_time = now.replace(
+                hour=event["hour"],
+                minute=event["minute"],
+                second=0,
+                microsecond=0
+            )
             if next_time <= now:
                 next_time += timedelta(days=1)
             return next_time
 
-        # Special 12-hour rainbow event
+        # Event with specific starting hour (like rainbow)
         if event.get("hour") is not None:
-            next_time = now.replace(hour=event["hour"], minute=event["minute"], second=0, microsecond=0)
+            next_time = now.replace(
+                hour=event["hour"],
+                minute=event["minute"],
+                second=0,
+                microsecond=0
+            )
             while next_time <= now:
                 next_time += timedelta(hours=event["interval"])
             return next_time
 
-        # Standard repeating event every X hours at specific minute
-        next_time = now.replace(minute=event["minute"], second=0, microsecond=0)
+        # Standard repeating events
+        next_time = now.replace(
+            minute=event["minute"],
+            second=0,
+            microsecond=0
+        )
 
         while next_time <= now:
             next_time += timedelta(hours=event["interval"])
 
         return next_time
 
-    @app_commands.command(name="events", description="Shows upcoming event times (IST)")
+    @app_commands.command(name="events", description="Shows upcoming event times")
     async def events(self, interaction: discord.Interaction):
 
         now = self.get_now()
         embed = discord.Embed(
-            title="🌍 Upcoming Events (IST)",
+            title="🌍 Upcoming Events",
+            description="Times are shown in **your local timezone** automatically.",
             color=discord.Color.blue()
         )
 
+        event_list = []
+
         for event in self.events:
             next_time = self.get_next_occurrence(event)
-            time_left = next_time - now
+            unix_timestamp = int(next_time.timestamp())
 
-            total_seconds = int(time_left.total_seconds())
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
+            event_list.append((event["name"], next_time, unix_timestamp))
 
+        # Sort by soonest event
+        event_list.sort(key=lambda x: x[1])
+
+        for name, next_time, unix in event_list:
             embed.add_field(
-                name=event["name"],
+                name=name,
                 value=(
-                    f"🕒 Next: {next_time.strftime('%H:%M IST')}\n"
-                    f"⏳ Time Left: {hours}h {minutes}m"
+                    f"🕒 Next: <t:{unix}:F>\n"
+                    f"⏳ Starts: <t:{unix}:R>"
                 ),
                 inline=False
             )
