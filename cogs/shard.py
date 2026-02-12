@@ -7,6 +7,7 @@ import math
 
 
 class Shard(commands.GroupCog, name="shard"):
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -54,9 +55,9 @@ class Shard(commands.GroupCog, name="shard"):
             },
         ]
 
-    # =========================
-    # EXACT TYPESCRIPT PORT
-    # =========================
+    # =============================
+    # EXACT getShardInfo PORT
+    # =============================
     def get_shard_info(self, dt):
         la = ZoneInfo("America/Los_Angeles")
         today = dt.astimezone(la).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -64,14 +65,22 @@ class Shard(commands.GroupCog, name="shard"):
         day_of_month = today.day
         weekday = today.isoweekday()
 
+        # EXACT parity logic
         is_red = (day_of_month % 2) == 1
+
         realm_idx = (day_of_month - 1) % 5
 
-        # IMPORTANT: replicate JS float division behavior
+        # EXACT JS float division behavior
         if is_red:
-            info_index = int((((day_of_month - 1) / 2) % 3) + 2)
+            # (((dayOfMth - 1) / 2) % 3) + 2
+            float_val = ((day_of_month - 1) / 2)
+            mod_val = float_val % 3
+            info_index = math.floor(mod_val) + 2
         else:
-            info_index = int((day_of_month / 2) % 2)
+            # (dayOfMth / 2) % 2
+            float_val = (day_of_month / 2)
+            mod_val = float_val % 2
+            info_index = math.floor(mod_val)
 
         config = self.shards_info[info_index]
 
@@ -87,7 +96,7 @@ class Shard(commands.GroupCog, name="shard"):
             occurrences.append((start, land, end))
 
         return {
-            "date": dt,
+            "date": dt.astimezone(la),
             "isRed": is_red,
             "hasShard": has_shard,
             "lastEnd": occurrences[2][2],
@@ -97,27 +106,30 @@ class Shard(commands.GroupCog, name="shard"):
             "occurrences": occurrences,
         }
 
-    # =========================
+    # =============================
     # EXACT findNextShard PORT
-    # =========================
+    # =============================
     def find_next_shard(self, from_dt, only=None):
+        la = ZoneInfo("America/Los_Angeles")
+        current = from_dt.astimezone(la)
+
         while True:
-            info = self.get_shard_info(from_dt)
+            info = self.get_shard_info(current)
 
             condition = (
                 info["hasShard"]
-                and from_dt < info["lastEnd"]
+                and current < info["lastEnd"]
                 and (not only or ((only == "red") == info["isRed"]))
             )
 
             if condition:
                 return info
-            else:
-                from_dt = from_dt + timedelta(days=1)
 
-    # =========================
+            current = current + timedelta(days=1)
+
+    # =============================
     # EMBED
-    # =========================
+    # =============================
     async def send_embed(self, interaction, info, title):
         embed_color = discord.Color.red() if info["isRed"] else discord.Color.dark_gray()
         embed = discord.Embed(title=title, color=embed_color)
@@ -149,9 +161,9 @@ class Shard(commands.GroupCog, name="shard"):
 
         await interaction.response.send_message(embed=embed)
 
-    # =========================
-    # SUBCOMMANDS
-    # =========================
+    # =============================
+    # COMMANDS
+    # =============================
 
     @app_commands.command(name="today")
     async def today(self, interaction: discord.Interaction):
