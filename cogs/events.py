@@ -45,16 +45,16 @@ class Events(commands.Cog):
             reset += timedelta(days=1)
 
         events = [
-            ("Turtle", turtle),
-            ("Grandma", grandma),
-            ("Geyser", geyser),
-            ("Daily Reset", reset)
+            ("Turtle 🐢", turtle),
+            ("Grandma 🍥", grandma),
+            ("Geyser 🏝️", geyser),
+            ("Daily Reset 🔄️", reset)
         ]
 
         events.sort(key=lambda x: x[1])
 
         embed = discord.Embed(
-            title="🌍 Upcoming Events",
+            title="🌍 Upcoming Wax 🕯️ Events",
             description="Times shown in your local timezone.",
             color=discord.Color.blue()
         )
@@ -69,7 +69,7 @@ class Events(commands.Cog):
 
         return embed
 
-    @app_commands.command(name="events", description="Shows upcoming event times")
+    @app_commands.command(name="events", description="Shows upcoming wax event times")
     async def events(self, interaction: discord.Interaction):
         embed = self.build_embed()
         view = EventsView(self)
