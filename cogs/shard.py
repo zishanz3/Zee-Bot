@@ -40,7 +40,7 @@ class Shard(commands.GroupCog, name="shard"):
             {
                 "no_shard_wkday": [2, 3],
                 "interval": self.red_interval,
-                "offset": timedelta(hours=2, minutes= 20),
+                "offset": timedelta(hours=2, minutes=20),
                 "maps": ["Bird Nest", "Treehouse", "Village of Dreams", "Crabfield", "Jellyfish Cove"],
                 "def_reward": 2.5,
             },
@@ -96,25 +96,36 @@ class Shard(commands.GroupCog, name="shard"):
             "occurrences": occurrences,
         }
 
+    # =========================
+    # FIND NEXT SHARD (FIXED)
+    # =========================
     def find_next_shard(self, color_filter=None):
         la = ZoneInfo("America/Los_Angeles")
-        check_date = datetime.now(la)
+        now = datetime.now(la)
+
+        check_date = now
 
         for _ in range(15):
             data = self.calculate_for_date(check_date)
 
             if data["has_shard"]:
-                if color_filter:
-                    if color_filter == "red" and not data["is_red"]:
-                        pass
-                    elif color_filter == "black" and data["is_red"]:
-                        pass
-                    else:
-                        return data
-                else:
-                    last_end = data["occurrences"][-1][2]
-                    if check_date < last_end:
-                        return data
+                last_end = data["occurrences"][-1][2]
+
+                # Skip if shard completely finished
+                if now >= last_end:
+                    check_date += timedelta(days=1)
+                    continue
+
+                # Filter red/black
+                if color_filter == "red" and not data["is_red"]:
+                    check_date += timedelta(days=1)
+                    continue
+
+                if color_filter == "black" and data["is_red"]:
+                    check_date += timedelta(days=1)
+                    continue
+
+                return data
 
             check_date += timedelta(days=1)
 
@@ -129,6 +140,7 @@ class Shard(commands.GroupCog, name="shard"):
             return
 
         now = data["now"]
+
         embed_color = discord.Color.red() if data["is_red"] else discord.Color.dark_gray()
         embed = discord.Embed(title=title, color=embed_color)
 
@@ -140,7 +152,6 @@ class Shard(commands.GroupCog, name="shard"):
         if data["reward"]:
             embed.add_field(name="Reward (AC)", value=str(data["reward"]), inline=True)
 
-        # ACTIVE + COUNTDOWN
         status_text = ""
         countdown_text = ""
 
@@ -149,6 +160,7 @@ class Shard(commands.GroupCog, name="shard"):
                 status_text = f"🔥 **Occurrence {idx} is ACTIVE NOW!**"
                 remaining = end - now
                 countdown_text = f"⏳ Ends in: `{str(remaining).split('.')[0]}`"
+                break
             elif now < start and not countdown_text:
                 remaining = start - now
                 countdown_text = f"⏳ Starts in: `{str(remaining).split('.')[0]}`"
