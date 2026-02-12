@@ -1,10 +1,11 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import aiohttp
-import re
+from playwright.async_api import async_playwright
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import subprocess
+import os
 
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -13,37 +14,55 @@ IST = ZoneInfo("Asia/Kolkata")
 class Events(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.browser_ready = False
+
+    async def ensure_browser(self):
+        """
+        Installs Chromium at runtime if not already installed.
+        This fixes Railway cache issues permanently.
+        """
+        if not self.browser_ready:
+            subprocess.run(["playwright", "install", "chromium"])
+            self.browser_ready = True
 
     async def fetch_events(self):
-        base_url = "https://sky-clock.netlify.app"
+        await self.ensure_browser()
+
+        url = "https://sky-clock.netlify.app/"
         results = []
 
-        async with aiohttp.ClientSession() as session:
-            # Get main HTML page
-            async with session.get(base_url) as resp:
-                html = await resp.text()
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage"
+                    ]
+                )
 
-            # Find JS bundle file path
-            script_match = re.search(r'src="(/assets/index-.*?\.js)"', html)
+                page = await browser.new_page()
+                await page.goto(url, timeout=60000)
 
-            if not script_match:
-                print("JS bundle not found")
-                return []
+                await page.wait_for_selector("tr.event", timeout=15000)
 
-            script_url = base_url + script_match.group(1)
+                rows = await page.query_selector_all("tr.event")
 
-            # Fetch JS bundle
-            async with session.get(script_url) as js_resp:
-                js_content = await js_resp.text()
+                for row in rows:
+                    cols = await row.query_selector_all("td")
+                    if len(cols) < 4:
+                        continue
 
-        # Extract event objects from JS content
-        pattern = re.findall(
-            r'"name":"(.*?)".*?"next":"(.*?)".*?"remaining":"(.*?)"',
-            js_content
-        )
+                    name = (await cols[1].inner_text()).strip()
+                    next_time = (await cols[2].inner_text()).strip()
+                    remaining = (await cols[3].inner_text()).strip()
 
-        for name, next_time, remaining in pattern:
-            results.append((name, next_time, remaining))
+                    results.append((name, next_time, remaining))
+
+                await browser.close()
+
+        except Exception as e:
+            print("Playwright error:", e)
 
         return results
 
@@ -70,48 +89,41 @@ class Events(commands.Cog):
 
     @app_commands.command(
         name="events",
-        description="Show upcoming Sky events (auto local time)"
+        description="Show upcoming Sky events"
     )
     async def events(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
-        try:
-            data = await self.fetch_events()
+        data = await self.fetch_events()
 
-            if not data:
-                await interaction.followup.send("❌ Failed to fetch events.")
-                return
+        if not data:
+            await interaction.followup.send("❌ Failed to fetch events.")
+            return
 
-            embed = discord.Embed(
-                title="✨ Upcoming Events (Wax)",
-                color=discord.Color.blurple()
+        embed = discord.Embed(
+            title="✨ Upcoming Events (Wax)",
+            color=discord.Color.blurple()
+        )
+
+        for name, next_time, remaining in data:
+
+            if ":" in next_time:
+                local_time = self.to_discord_timestamp(next_time)
+            else:
+                local_time = next_time
+
+            embed.add_field(
+                name=name,
+                value=(
+                    f"🕒 **Next:** {local_time}\n"
+                    f"⏳ **In:** `{remaining}`"
+                ),
+                inline=True
             )
 
-            for name, next_time, remaining in data:
+        embed.set_footer(text="Times auto convert to your local timezone")
 
-                if ":" in next_time:
-                    local_time = self.to_discord_timestamp(next_time)
-                else:
-                    local_time = next_time
-
-                embed.add_field(
-                    name=name,
-                    value=(
-                        f"🕒 **Next:** {local_time}\n"
-                        f"⏳ **In:** `{remaining}`"
-                    ),
-                    inline=True
-                )
-
-            embed.set_footer(
-                text="Times automatically convert to your local timezone"
-            )
-
-            await interaction.followup.send(embed=embed)
-
-        except Exception as e:
-            print("Events error:", e)
-            await interaction.followup.send("❌ Error fetching events.")
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
