@@ -3,13 +3,18 @@ from discord.ext import commands
 from discord import app_commands
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import math
 
 
 class Shard(commands.GroupCog, name="shard"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+        self.la = ZoneInfo("America/Los_Angeles")
+
+        # 🔥 Anchor date (CONFIRMED BLACK SHARD DAY)
+        # Adjust if needed
+        self.anchor_date = datetime(2024, 1, 1, tzinfo=self.la)
 
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
@@ -19,128 +24,101 @@ class Shard(commands.GroupCog, name="shard"):
 
         self.realms = ["Prairie", "Forest", "Valley", "Wasteland", "Vault"]
 
-        self.shards_info = [
-            {
-                "noShardWkDay": [6, 7],
-                "interval": self.black_interval,
-                "offset": timedelta(hours=1, minutes=50),
-                "maps": ["Butterfly Field", "Forest Brook", "Ice Rink", "Broken Temple", "Starlight Desert"],
-            },
-            {
-                "noShardWkDay": [7, 1],
-                "interval": self.black_interval,
-                "offset": timedelta(hours=2, minutes=10),
-                "maps": ["Village Islands", "Boneyard", "Ice Rink", "Battlefield", "Starlight Desert"],
-            },
-            {
-                "noShardWkDay": [1, 2],
-                "interval": self.red_interval,
-                "offset": timedelta(hours=7, minutes=40),
-                "maps": ["Cave", "Forest Garden", "Village of Dreams", "Graveyard", "Jellyfish Cove"],
-                "defRewardAC": 2,
-            },
-            {
-                "noShardWkDay": [2, 3],
-                "interval": self.red_interval,
-                "offset": timedelta(hours=2, minutes=20),
-                "maps": ["Bird Nest", "Treehouse", "Village of Dreams", "Crabfield", "Jellyfish Cove"],
-                "defRewardAC": 2.5,
-            },
-            {
-                "noShardWkDay": [3, 4],
-                "interval": self.red_interval,
-                "offset": timedelta(hours=3, minutes=30),
-                "maps": ["Sanctuary Island", "Elevated Clearing", "Hermit Valley", "Forgotten Ark", "Jellyfish Cove"],
-                "defRewardAC": 3.5,
-            },
+        # First shard offsets per rotation group
+        self.offsets = [
+            timedelta(hours=1, minutes=50),
+            timedelta(hours=2, minutes=10),
+            timedelta(hours=7, minutes=40),
+            timedelta(hours=2, minutes=20),
+            timedelta(hours=3, minutes=30),
         ]
 
-    # =========================
-    # DIRECT PORT OF getShardInfo(date)
-    # =========================
-    def get_shard_info(self, date):
-        la = ZoneInfo("America/Los_Angeles")
-        date = date.astimezone(la)
+    # ===============================
+    # DETERMINE RED OR BLACK CORRECTLY
+    # ===============================
+    def is_red_day(self, today):
+        days_since = (today.date() - self.anchor_date.date()).days
+        return days_since % 2 == 1  # alternates daily
 
-        today = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    # ===============================
+    # REALM ROTATION (5-DAY LOOP)
+    # ===============================
+    def get_realm_index(self, today):
+        days_since = (today.date() - self.anchor_date.date()).days
+        return days_since % 5
 
-        day_of_month = today.day
-        weekday = today.isoweekday()
+    # ===============================
+    # BUILD SHARD DATA
+    # ===============================
+    def build_shard(self, current_time, filter_color=None):
+        now = current_time.astimezone(self.la)
 
-        is_red = day_of_month % 2 == 1
-        realm_idx = (day_of_month - 1) % 5
+        for day_offset in range(15):
+            check = now + timedelta(days=day_offset)
+            today = check.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        if is_red:
-            info_index = int((((day_of_month - 1) / 2) % 3) + 2)
-        else:
-            info_index = int((day_of_month / 2) % 2)
+            red = self.is_red_day(today)
 
-        config = self.shards_info[info_index]
+            if filter_color == "red" and not red:
+                continue
+            if filter_color == "black" and red:
+                continue
 
-        has_shard = weekday not in config["noShardWkDay"]
+            realm_index = self.get_realm_index(today)
 
-        first_start = today + config["offset"]
+            interval = self.red_interval if red else self.black_interval
 
-        occurrences = []
-        for i in range(3):
-            start = first_start + (config["interval"] * i)
-            land = start + self.land_offset
-            end = start + self.end_offset
-            occurrences.append((start, land, end))
+            # Rotate offset groups every day
+            group_index = (today.day % len(self.offsets))
+            first_start = today + self.offsets[group_index]
 
-        return {
-            "date": date,
-            "isRed": is_red,
-            "hasShard": has_shard,
-            "lastEnd": occurrences[2][2],
-            "realm": self.realms[realm_idx],
-            "map": config["maps"][realm_idx],
-            "rewardAC": config.get("defRewardAC") if is_red else None,
-            "occurrences": occurrences,
-        }
+            occurrences = []
+            for i in range(3):
+                start = first_start + (interval * i)
+                end = start + self.end_offset
+                occurrences.append((start, end))
 
-    # =========================
-    # DIRECT PORT OF findNextShard
-    # =========================
-    def find_next_shard(self, from_dt, only=None):
-        la = ZoneInfo("America/Los_Angeles")
-        current = from_dt.astimezone(la)
+            # If checking today, skip if finished
+            if day_offset == 0:
+                if now >= occurrences[-1][1]:
+                    continue
 
-        while True:
-            info = self.get_shard_info(current)
+            return {
+                "now": now,
+                "isRed": red,
+                "realm": self.realms[realm_index],
+                "occurrences": occurrences
+            }
 
-            condition = (
-                info["hasShard"]
-                and current < info["lastEnd"]
-                and (not only or ((only == "red") == info["isRed"]))
-            )
+        return None
 
-            if condition:
-                return info
-
-            current = current + timedelta(days=1)
-
-    # =========================
+    # ===============================
     # EMBED
-    # =========================
-    async def send_embed(self, interaction, info, title):
-        embed_color = discord.Color.red() if info["isRed"] else discord.Color.dark_gray()
-        embed = discord.Embed(title=title, color=embed_color)
+    # ===============================
+    async def send_embed(self, interaction, data, title):
+        if not data:
+            await interaction.response.send_message("No shard found.")
+            return
 
-        embed.add_field(name="Realm", value=info["realm"])
-        embed.add_field(name="Map", value=info["map"])
+        embed = discord.Embed(
+            title=title,
+            color=discord.Color.red() if data["isRed"] else discord.Color.dark_gray()
+        )
 
-        if info["rewardAC"]:
-            embed.add_field(name="Reward AC", value=str(info["rewardAC"]))
+        embed.add_field(
+            name="Type",
+            value="🔴 Red Shard" if data["isRed"] else "⚫ Black Shard"
+        )
 
-        now = info["date"]
+        embed.add_field(name="Realm", value=data["realm"])
 
+        now = data["now"]
         status = "Not active"
         countdown = ""
 
-        for idx, (start, _, end) in enumerate(info["occurrences"], 1):
+        for i, (start, end) in enumerate(data["occurrences"], 1):
             if start <= now <= end:
-                status = f"🔥 Occurrence {idx} ACTIVE"
+                status = f"🔥 Occurrence {i} ACTIVE"
                 countdown = f"Ends in `{str(end - now).split('.')[0]}`"
                 break
             elif now < start:
@@ -154,29 +132,29 @@ class Shard(commands.GroupCog, name="shard"):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="red")
-    async def red(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.find_next_shard(now, "red")
-        await self.send_embed(interaction, info, "Next Red Shard")
-
-    @app_commands.command(name="black")
-    async def black(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.find_next_shard(now, "black")
-        await self.send_embed(interaction, info, "Next Black Shard")
-
-    @app_commands.command(name="next")
-    async def next(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.find_next_shard(now)
-        await self.send_embed(interaction, info, "Next Shard")
+    # ===============================
+    # COMMANDS
+    # ===============================
 
     @app_commands.command(name="today")
     async def today(self, interaction: discord.Interaction):
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        info = self.get_shard_info(now)
-        await self.send_embed(interaction, info, "Today's Shard")
+        data = self.build_shard(datetime.now(self.la))
+        await self.send_embed(interaction, data, "Today's Shard")
+
+    @app_commands.command(name="next")
+    async def next(self, interaction: discord.Interaction):
+        data = self.build_shard(datetime.now(self.la))
+        await self.send_embed(interaction, data, "Next Shard")
+
+    @app_commands.command(name="red")
+    async def red(self, interaction: discord.Interaction):
+        data = self.build_shard(datetime.now(self.la), "red")
+        await self.send_embed(interaction, data, "Next Red Shard")
+
+    @app_commands.command(name="black")
+    async def black(self, interaction: discord.Interaction):
+        data = self.build_shard(datetime.now(self.la), "black")
+        await self.send_embed(interaction, data, "Next Black Shard")
 
 
 async def setup(bot):
