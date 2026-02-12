@@ -47,6 +47,9 @@ class MyBot(commands.Bot):
         await self.load_extension("cogs.ask_zee")
         print("✅ events loaded")
 
+        await self.load_extension("cogs.shard")
+        print("✅ events loaded")
+
         guild = discord.Object(id=DEV_GUILD_ID)
 
         # DEV MODE: instant commands
