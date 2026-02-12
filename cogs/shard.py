@@ -55,7 +55,13 @@ class Shard(commands.GroupCog, name="shard"):
                 continue
 
             # 5-day rotation
-            group_index = cycle_day % 5
+            half_cycle = cycle_day // 2
+
+            if is_red:
+                group_index = 2 + (half_cycle % 3)
+            else:
+                group_index = half_cycle % 2
+
 
             interval = self.red_interval if is_red else self.black_interval
             first_start = today + self.offsets[group_index]
