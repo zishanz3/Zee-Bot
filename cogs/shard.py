@@ -9,12 +9,12 @@ class Shard(commands.GroupCog, name="shard"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
         self.la = ZoneInfo("America/Los_Angeles")
 
-        # 🔥 Anchor date (CONFIRMED BLACK SHARD DAY)
-        # Adjust if needed
-        self.anchor_date = datetime(2024, 1, 3, tzinfo=self.la)
+        # 🔥 Anchor = TODAY (confirmed BLACK)
+        self.anchor_date = datetime.now(self.la).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
 
         self.land_offset = timedelta(minutes=8, seconds=40)
         self.end_offset = timedelta(hours=4)
@@ -24,7 +24,7 @@ class Shard(commands.GroupCog, name="shard"):
 
         self.realms = ["Prairie", "Forest", "Valley", "Wasteland", "Vault"]
 
-        # First shard offsets per rotation group
+        # 5 rotating shard offset groups
         self.offsets = [
             timedelta(hours=1, minutes=50),
             timedelta(hours=2, minutes=10),
@@ -33,44 +33,31 @@ class Shard(commands.GroupCog, name="shard"):
             timedelta(hours=3, minutes=30),
         ]
 
-    # ===============================
-    # DETERMINE RED OR BLACK CORRECTLY
-    # ===============================
-    def is_red_day(self, today):
-        days_since = (today.date() - self.anchor_date.date()).days
-        return days_since % 2 == 0
-
-
-    # ===============================
-    # REALM ROTATION (5-DAY LOOP)
-    # ===============================
-    def get_realm_index(self, today):
-        days_since = (today.date() - self.anchor_date.date()).days
-        return days_since % 5
-
-    # ===============================
-    # BUILD SHARD DATA
-    # ===============================
+    # =========================
+    # BUILD SHARD FOR DATE
+    # =========================
     def build_shard(self, current_time, filter_color=None):
         now = current_time.astimezone(self.la)
 
-        for day_offset in range(15):
-            check = now + timedelta(days=day_offset)
-            today = check.replace(hour=0, minute=0, second=0, microsecond=0)
+        for days_ahead in range(15):
+            check_time = now + timedelta(days=days_ahead)
+            today = check_time.replace(hour=0, minute=0, second=0, microsecond=0)
 
-            red = self.is_red_day(today)
+            cycle_day = (today.date() - self.anchor_date.date()).days
 
-            if filter_color == "red" and not red:
+            # Alternate daily
+            is_red = (cycle_day % 2) == 1
+
+            # Filter color if requested
+            if filter_color == "red" and not is_red:
                 continue
-            if filter_color == "black" and red:
+            if filter_color == "black" and is_red:
                 continue
 
-            realm_index = self.get_realm_index(today)
+            # 5-day rotation
+            group_index = cycle_day % 5
 
-            interval = self.red_interval if red else self.black_interval
-
-            # Rotate offset groups every day
-            group_index = (today.day % len(self.offsets))
+            interval = self.red_interval if is_red else self.black_interval
             first_start = today + self.offsets[group_index]
 
             occurrences = []
@@ -79,23 +66,25 @@ class Shard(commands.GroupCog, name="shard"):
                 end = start + self.end_offset
                 occurrences.append((start, end))
 
-            # If checking today, skip if finished
-            if day_offset == 0:
+            # If today, skip if finished
+            if days_ahead == 0:
                 if now >= occurrences[-1][1]:
                     continue
 
+            realm_index = cycle_day % 5
+
             return {
                 "now": now,
-                "isRed": red,
+                "isRed": is_red,
                 "realm": self.realms[realm_index],
-                "occurrences": occurrences
+                "occurrences": occurrences,
             }
 
         return None
 
-    # ===============================
+    # =========================
     # EMBED
-    # ===============================
+    # =========================
     async def send_embed(self, interaction, data, title):
         if not data:
             await interaction.response.send_message("No shard found.")
@@ -110,7 +99,6 @@ class Shard(commands.GroupCog, name="shard"):
             name="Type",
             value="🔴 Red Shard" if data["isRed"] else "⚫ Black Shard"
         )
-
         embed.add_field(name="Realm", value=data["realm"])
 
         now = data["now"]
@@ -120,10 +108,10 @@ class Shard(commands.GroupCog, name="shard"):
         for i, (start, end) in enumerate(data["occurrences"], 1):
             if start <= now <= end:
                 status = f"🔥 Occurrence {i} ACTIVE"
-                countdown = f"Ends in `{str(end - now).split('.')[0]}`"
+                countdown = f"⏳ Ends in `{str(end - now).split('.')[0]}`"
                 break
             elif now < start:
-                countdown = f"Starts in `{str(start - now).split('.')[0]}`"
+                countdown = f"⏳ Starts in `{str(start - now).split('.')[0]}`"
                 break
 
         embed.add_field(name="Status", value=status, inline=False)
@@ -133,9 +121,9 @@ class Shard(commands.GroupCog, name="shard"):
 
         await interaction.response.send_message(embed=embed)
 
-    # ===============================
+    # =========================
     # COMMANDS
-    # ===============================
+    # =========================
 
     @app_commands.command(name="today")
     async def today(self, interaction: discord.Interaction):
